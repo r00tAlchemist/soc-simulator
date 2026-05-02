@@ -1,0 +1,38 @@
+meta:
+  name: "Clean Session — Morning Login Storm"
+  difficulty: easy
+  answer: FP
+  mitre_techniques: []
+  hint: "All logon events are from internal IPs and known service accounts. Normal Monday morning pattern."
+  alert:
+    rule_id: AUTH_BRUTE_FORCE
+    severity: LOW
+    summary: "Elevated logon event volume detected across multiple workstations during morning window"
+    description: "Correlation rule fired: >50 EID 4624 events within 30 minutes across >5 hosts. May indicate scheduled batch jobs, login storm after patch reboot, or scripted user provisioning. Verify against change management."
+
+world_overrides:
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "svc_scanner"
+
+phases:
+  phase_1:
+    name: "Service Account Logon Burst"
+    technique: ""
+    count: 18
+    log_factory: successful_logon
+    spread_seconds: 900
+    delay_after_prev: [0, 5]
+    params:
+      target_user: "{inject_malicious_user}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_2:
+    name: "Scheduled Task Activity"
+    technique: ""
+    count: 5
+    log_factory: scheduled_task_created
+    spread_seconds: 300
+    delay_after_prev: [5, 15]
+    params:
+      target_user: "{inject_malicious_user}"
+      dest_host: "{inject_malicious_host}"

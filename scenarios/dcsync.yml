@@ -1,0 +1,61 @@
+meta:
+  name: "DCSync: Mimikatz Domain Credential Dump"
+  difficulty: hard
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1003.006
+      name: "OS Credential Dumping: DCSync"
+    - id: T1550.002
+      name: "Use Alternate Authentication Material: Pass the Hash"
+  hint: "DCSync abuses the MS-DRSR replication protocol — mimikatz's lsadump::dcsync requests directory replication from the DC as if it were another domain controller. Legitimate replication only occurs between actual DCs. A workstation or member server issuing DRS replication calls to port 445 of the DC is a near-certain indicator of compromise. The follow-on network type 3 logons using dumped credentials confirm credential reuse."
+  alert:
+    rule_id: CRED_ACCESS_ANOMALY
+    severity: CRITICAL
+    summary: "Possible DCSync attack: directory replication request to {inject_malicious_host} from non-DC host by {inject_malicious_user}"
+    description: "High-fidelity rule fired: MS-DRSR GetNCChanges call observed from a host that is not a known Domain Controller. This technique is used to remotely dump all domain password hashes without touching LSASS. Treat as critical — isolate source host immediately."
+
+world_overrides:
+  attacker_ip: "10.0.99.5"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "svc_deploy"
+
+phases:
+  phase_1:
+    name: "Credential Access: DCSync via Mimikatz"
+    technique: T1003.006
+    count: 1
+    log_factory: sysmon.process_create
+    spread_seconds: 5
+    delay_after_prev: [2, 8]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "mimikatz.exe \"lsadump::dcsync /domain:corp.local /all /csv\" exit"
+        - "mimikatz.exe \"lsadump::dcsync /user:krbtgt\" exit"
+        - "mimikatz.exe \"lsadump::dcsync /domain:corp.local /user:Administrator\" exit"
+
+  phase_2:
+    name: "Lateral Movement: SMB Connections to DC"
+    technique: T1550.002
+    count: 3
+    log_factory: sysmon.network_connect
+    spread_seconds: 20
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+
+  phase_3:
+    name: "Lateral Movement: Logon with Dumped Credentials"
+    technique: T1550.002
+    count: 2
+    log_factory: successful_logon
+    spread_seconds: 30
+    delay_after_prev: [10, 30]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"

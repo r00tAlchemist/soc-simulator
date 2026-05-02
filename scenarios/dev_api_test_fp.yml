@@ -1,0 +1,43 @@
+meta:
+  name: "FP — Developer Testing REST API with Postman/curl"
+  difficulty: medium
+  answer: FP
+  mitre_techniques: []
+  hint: "The source IP (10.0.2.30) is an internal developer workstation, not an external attacker. The destination (SRV02) is the internal dev/test API server, not an external exfiltration endpoint. User-agents 'PostmanRuntime' and 'curl' are standard developer tools for API testing. The 4xx HTTP responses (401 Unauthorized, 404 Not Found) indicate the developer is exploring the API surface — attackers successfully exfiltrating data would have 2xx responses and large response bodies. Volume is consistent with iterative API development, not automated exfiltration tooling."
+  alert:
+    rule_id: DATA_EXFIL_SUSPECTED
+    severity: LOW
+    summary: "High volume of HTTP POST requests with large payloads from {attacker_ip} to {inject_malicious_host} by {inject_malicious_user}"
+    description: "Threshold rule fired: >10 HTTP POST requests with content-length >10KB from a single internal source to a single destination within 30 minutes. Pattern can match data staging or exfiltration. Verify the destination is not an external data sink and review user-agent and response codes."
+
+world_overrides:
+  attacker_ip: "10.0.2.30"
+  inject_malicious_host: "SRV02"
+  inject_malicious_user: "dev.user"
+
+phases:
+  phase_1:
+    name: "Developer API Testing — POST Requests"
+    technique: ""
+    count: 12
+    log_factory: proxy.http_request
+    spread_seconds: 480
+    delay_after_prev: [5, 30]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://SRV02/api/v2/ingest"
+      method: POST
+      user_agent: "PostmanRuntime/7.32.3"
+
+  phase_2:
+    name: "Developer API Testing — GET Requests with 4xx Errors"
+    technique: ""
+    count: 5
+    log_factory: proxy.http_request
+    spread_seconds: 120
+    delay_after_prev: [5, 20]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://SRV02/api/v2/users"
+      method: GET
+      user_agent: "curl/7.88.1"

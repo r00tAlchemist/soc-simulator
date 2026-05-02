@@ -1,0 +1,46 @@
+meta:
+  name: "FP — IT Helpdesk RDP Support Sessions"
+  difficulty: easy
+  answer: FP
+  mitre_techniques: []
+  hint: "Every RDP logon here succeeds on the first attempt — zero failed logons precede them. An RDP brute force attack always has many failures before any success. The source IP (10.0.1.45) is in the helpdesk subnet (10.0.1.x), which is the expected source for remote support. The helpdesk.tech account is a named IT support account, not a generic admin. mstsc.exe (RDP client) and msra.exe (Remote Assistance) are legitimate Microsoft tools for remote support. Five different workstations in a short window simply means the helpdesk analyst is working through a support queue — a normal Monday morning pattern."
+  alert:
+    rule_id: AUTH_BRUTE_FORCE
+    severity: LOW
+    summary: "Multiple RDP logons (type 10) from {attacker_ip} to {inject_malicious_host} and other hosts by {inject_malicious_user}"
+    description: "RDP logon pattern rule fired: single account produced type 10 interactive RDP logons to multiple hosts within a short window. While all logons succeeded, the multi-target pattern matches helpdesk activity or lateral movement post-compromise. Verify source IP subnet and whether a support ticket exists for each target host."
+
+world_overrides:
+  attacker_ip: "10.0.1.45"
+  inject_malicious_host: "WS007"
+  inject_malicious_user: "helpdesk.tech"
+
+phases:
+  phase_1:
+    name: "Helpdesk: RDP Logons to User Workstations"
+    technique: ""
+    count: 5
+    log_factory: successful_logon
+    spread_seconds: 300
+    delay_after_prev: [10, 60]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_2:
+    name: "Helpdesk: Remote Support Tool Execution"
+    technique: ""
+    count: 4
+    log_factory: sysmon.process_create
+    spread_seconds: 180
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "mstsc.exe /v:WS007 /f"
+        - "msra.exe /offerra"
+        - "mstsc.exe /v:WS002 /span"
+        - "C:\\Windows\\System32\\mstsc.exe /shadow:1 /noConsentPrompt"

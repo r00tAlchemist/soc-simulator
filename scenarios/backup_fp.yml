@@ -1,0 +1,52 @@
+meta:
+  name: "FP — Backup Agent Mass File Operations"
+  difficulty: hard
+  answer: FP
+  mitre_techniques: []
+  hint: "Mass file creation originates from svc_deploy on a predictable schedule. Process image is Veeam/backup agent, not an encryptor. No shadow copy deletion, no ransom note."
+  alert:
+    rule_id: MASS_FILE_OPERATION
+    severity: CRITICAL
+    summary: "Mass file creation/modification on {inject_malicious_host} by {inject_malicious_user} — possible ransomware"
+    description: "Heuristic rule fired: >50 file write operations within 3 minutes by a single process. Pattern matches early-stage ransomware enumeration. Verify process lineage and whether a backup window is scheduled."
+
+world_overrides:
+  inject_malicious_host: "FS01"
+  inject_malicious_user: "svc_deploy"
+
+phases:
+  phase_1:
+    name: "Backup Agent Starts"
+    technique: ""
+    count: 1
+    log_factory: sysmon.process_create
+    spread_seconds: 5
+    delay_after_prev: [0, 5]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      command_line: "C:\\Program Files\\Veeam\\Backup and Replication\\Veeam.Backup.Agent.exe --backup-job DailyFull"
+
+  phase_2:
+    name: "File Backup Operations"
+    technique: ""
+    count: 60
+    log_factory: sysmon.file_create
+    spread_seconds: 240
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "D:\\BackupStore\\daily_2024.vbk"
+
+  phase_3:
+    name: "Backup Catalog Update"
+    technique: ""
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 30
+    delay_after_prev: [5, 10]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      command_line: "C:\\Program Files\\Veeam\\Backup and Replication\\Veeam.Backup.CatalogService.exe --rebuild"

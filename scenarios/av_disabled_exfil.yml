@@ -1,0 +1,64 @@
+meta:
+  name: "AV Disabled then Sensitive File Exfiltration"
+  difficulty: medium
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1562.001
+      name: "Impair Defenses: Disable or Modify Tools"
+    - id: T1005
+      name: "Data from Local System"
+    - id: T1048.003
+      name: "Exfiltration Over Unencrypted Non-C2 Protocol"
+  hint: "Stopping Windows Defender (sc stop WinDefend) or disabling real-time protection via Set-MpPreference is a near-universal ransomware and data theft precursor. No legitimate software needs to permanently disable AV — updates and installations use signed exclusions or temporary pauses through the AV's own API. The sequence of AV disable followed immediately by sensitive file access and large outbound POSTs is a high-confidence exfiltration chain. Compare to the WSUS FP where security tools are touched by known management infrastructure."
+  alert:
+    rule_id: DEFENSE_EVASION
+    severity: HIGH
+    summary: "Windows Defender disabled on {inject_malicious_host} by {inject_malicious_user} followed by outbound data transfer"
+    description: "High-fidelity rule fired: AV service stopped or real-time protection disabled via PowerShell, followed within minutes by bulk file reads and large HTTP POST to external destination. This sequence strongly indicates pre-exfiltration defence evasion. Isolate host and review all file access in the window."
+
+world_overrides:
+  attacker_ip: "10.0.2.77"
+  inject_malicious_host: "WS008"
+  inject_malicious_user: "alex.petrov"
+
+phases:
+  phase_1:
+    name: "Defense Evasion: Disable Windows Defender"
+    technique: T1562.001
+    count: 2
+    log_factory: sysmon.process_create
+    spread_seconds: 15
+    delay_after_prev: [2, 8]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "sc.exe stop WinDefend"
+        - "powershell.exe -c \"Set-MpPreference -DisableRealtimeMonitoring $true -DisableIOAVProtection $true\""
+        - "powershell.exe -c \"Set-MpPreference -DisableBehaviorMonitoring $true; Set-MpPreference -DisableBlockAtFirstSeen $true\""
+
+  phase_2:
+    name: "Collection: Sensitive File Access"
+    technique: T1005
+    count: 3
+    log_factory: sysmon.file_create
+    spread_seconds: 30
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "C:\\Users\\alex.petrov\\Documents\\credentials.xlsx"
+
+  phase_3:
+    name: "Exfiltration: Large HTTP POST to External Host"
+    technique: T1048.003
+    count: 4
+    log_factory: proxy.http_request
+    spread_seconds: 120
+    delay_after_prev: [15, 45]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://185.199.108.153/api/upload"
+      method: POST
+      user_agent: "python-requests/2.28.2"

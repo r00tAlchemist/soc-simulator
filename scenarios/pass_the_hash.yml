@@ -1,0 +1,63 @@
+meta:
+  name: "Pass-the-Hash Lateral Movement via PsExec/WMI"
+  difficulty: hard
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1550.002
+      name: "Use Alternate Authentication Material: Pass the Hash"
+    - id: T1021.002
+      name: "Remote Services: SMB/Windows Admin Shares"
+    - id: T1569.002
+      name: "System Services: Service Execution"
+  hint: "Pass-the-Hash produces NTLM type 3 network logons (logon type 3) from a host that does not match the account's normal workstation. The telltale signs are: high-value account (domain.admin) authenticating from a non-privileged workstation (10.0.2.13), NTLM authentication instead of Kerberos, PsExec or wmic.exe with SMB connections to port 445, and no corresponding interactive logon from the account's usual machine. Kerberos logons cannot be replayed this way — NTLM is the vulnerability."
+  alert:
+    rule_id: LATERAL_MOVEMENT
+    severity: HIGH
+    summary: "Privileged account {inject_malicious_user} authenticating via NTLM from unusual host to {inject_malicious_host} — possible Pass-the-Hash"
+    description: "Correlation rule fired: domain admin account produced type 3 NTLM logons from a non-administrative workstation, followed by PsExec/WMI process execution and SMB connections to port 445. This pattern is consistent with Pass-the-Hash credential reuse after an initial compromise."
+
+world_overrides:
+  attacker_ip: "10.0.2.13"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "domain.admin"
+
+phases:
+  phase_1:
+    name: "Lateral Movement: NTLM Pass-the-Hash Logons"
+    technique: T1550.002
+    count: 4
+    log_factory: successful_logon
+    spread_seconds: 60
+    delay_after_prev: [5, 20]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_2:
+    name: "Execution: Remote Process via PsExec/WMI"
+    technique: T1569.002
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 45
+    delay_after_prev: [10, 30]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "psexec.exe \\\\DC01 -accepteula -s cmd.exe /c whoami"
+        - "wmic.exe /node:DC01 /user:domain.admin process call create \"cmd.exe /c net group \\\"Domain Admins\\\" /domain\""
+        - "psexec.exe \\\\DC01 -accepteula -s -i powershell.exe -w hidden -c \"Get-ADUser -Filter *\""
+
+  phase_3:
+    name: "Lateral Movement: SMB Connections to DC port 445"
+    technique: T1021.002
+    count: 4
+    log_factory: sysmon.network_connect
+    spread_seconds: 40
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"

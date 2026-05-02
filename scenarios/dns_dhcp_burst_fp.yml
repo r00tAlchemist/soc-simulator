@@ -1,0 +1,44 @@
+meta:
+  name: "FP — DNS Burst from New Workstation First-Boot Provisioning"
+  difficulty: hard
+  answer: FP
+  mitre_techniques: []
+  hint: "All queried domains are Microsoft-owned infrastructure: windowsupdate.com, update.microsoft.com, login.microsoftonline.com, dl.delivery.mp.microsoft.com (BITS/Delivery Optimization), and office.com. A new Windows workstation first boot triggers Windows Update, Windows Defender definition download, Office activation, Azure AD join, and Microsoft telemetry — easily 25+ DNS queries in a few minutes, all to Microsoft CDN. DNS tunneling (the paired INCIDENT) uses high-entropy random subdomains under an attacker-controlled domain, not predictable Microsoft service FQDNs. Volume alone is not sufficient to classify as malicious — entropy and domain ownership matter."
+  alert:
+    rule_id: DNS_ANOMALY
+    severity: LOW
+    summary: "High DNS query volume from {inject_malicious_host} by {inject_malicious_user} — 25+ queries in under 5 minutes"
+    description: "DNS volume rule fired: single host generated >25 DNS queries within a 5-minute window. High query volume can indicate DNS tunneling C2 channel. Inspect the queried domain names for entropy and ownership before escalating."
+
+world_overrides:
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "svc_scanner"
+
+phases:
+  phase_1:
+    name: "New Workstation First-Boot: Microsoft DNS Queries"
+    technique: ""
+    count: 25
+    log_factory: sysmon.dns_query
+    spread_seconds: 240
+    delay_after_prev: [0, 5]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      query_name:
+        - "windowsupdate.com"
+        - "update.microsoft.com"
+        - "dl.delivery.mp.microsoft.com"
+        - "login.microsoftonline.com"
+        - "office.com"
+
+  phase_2:
+    name: "New Workstation First-Boot: Windows Update DNS Lookups via Proxy"
+    technique: ""
+    count: 10
+    log_factory: proxy.dns_lookup
+    spread_seconds: 180
+    delay_after_prev: [3, 10]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"

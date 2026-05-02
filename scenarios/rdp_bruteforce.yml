@@ -1,0 +1,63 @@
+meta:
+  name: "External RDP Brute Force then Successful Access"
+  difficulty: easy
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1110.001
+      name: "Brute Force: Password Guessing"
+    - id: T1078
+      name: "Valid Accounts"
+    - id: T1033
+      name: "System Owner/User Discovery"
+  hint: "25 consecutive failed RDP logons (type 10) from a single external IP followed by a single success is the textbook brute force pattern — the attacker guessed the password. The subsequent recon commands (whoami, net user, ipconfig) confirm an interactive post-exploitation session. Compare this to the helpdesk RDP FP scenario: legitimate help-desk sessions have zero preceding failures and originate from the internal 10.0.1.x subnet."
+  alert:
+    rule_id: AUTH_BRUTE_FORCE
+    severity: HIGH
+    summary: "25 failed RDP logon attempts from external IP {attacker_ip} targeting {inject_malicious_user}@{inject_malicious_host} followed by successful login"
+    description: "Threshold rule fired: >20 EID 4625 logon type 10 from a single non-RFC1918 IP, followed by EID 4624 from the same source. Classic brute-force-then-success pattern. Isolate host and review post-logon activity immediately."
+
+world_overrides:
+  attacker_ip: "45.33.32.156"
+  inject_malicious_host: "WS005"
+  inject_malicious_user: "admin"
+
+phases:
+  phase_1:
+    name: "Credential Access: RDP Password Brute Force"
+    technique: T1110.001
+    count: 25
+    log_factory: failed_logon
+    spread_seconds: 180
+    delay_after_prev: [2, 10]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_2:
+    name: "Initial Access: Successful RDP Login"
+    technique: T1078
+    count: 1
+    log_factory: successful_logon
+    spread_seconds: 5
+    delay_after_prev: [5, 20]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_3:
+    name: "Discovery: Post-RDP Reconnaissance"
+    technique: T1033
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 45
+    delay_after_prev: [10, 30]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "whoami /all"
+        - "net user /domain"
+        - "ipconfig /all"

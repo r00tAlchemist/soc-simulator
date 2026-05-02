@@ -1,0 +1,73 @@
+meta:
+  name: "Insider Threat: Mass File Access and Cloud Exfiltration"
+  difficulty: medium
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1005
+      name: "Data from Local System"
+    - id: T1560.001
+      name: "Archive Collected Data: Archive via Utility"
+    - id: T1567.002
+      name: "Exfiltration to Cloud Storage"
+  hint: "The key indicators here are: a regular user (not a service account) accessing 15 files in rapid succession, compressing them with 7-Zip, then POSTing large payloads to personal cloud storage (Google Drive, Dropbox, OneDrive) from their workstation. Legitimate business uploads are typically to corporate-approved cloud services and are not preceded by bulk file collection and archiving. The internal source IP does not make this safe — insider threats originate internally by definition."
+  alert:
+    rule_id: DATA_EXFIL_SUSPECTED
+    severity: MEDIUM
+    summary: "Large outbound data transfer to external cloud storage from {inject_malicious_host} by {inject_malicious_user} following bulk file access"
+    description: "Correlation rule fired: bulk file read events followed by archive utility execution and large HTTP POST to consumer cloud storage provider. Pattern is consistent with insider data theft. Review file access scope and destination URLs."
+
+world_overrides:
+  attacker_ip: "10.0.2.88"
+  inject_malicious_host: "FS01"
+  inject_malicious_user: "kate.morrison"
+
+phases:
+  phase_1:
+    name: "Collection: Mass File Access on File Server"
+    technique: T1005
+    count: 15
+    log_factory: sysmon.file_create
+    spread_seconds: 120
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename:
+        - "D:\\Finance\\Q4_Reports\\budget_final.xlsx"
+        - "D:\\Finance\\Q4_Reports\\salary_matrix_2024.xlsx"
+        - "D:\\Finance\\Contracts\\vendor_NDA_signed.pdf"
+        - "D:\\HR\\Employees\\compensation_review.xlsx"
+        - "D:\\Finance\\M&A\\project_falcon_valuation.docx"
+        - "D:\\Legal\\IP\\patent_applications_draft.pdf"
+        - "D:\\Finance\\Q3_Reports\\cashflow_statement.xlsx"
+        - "D:\\HR\\Employees\\org_chart_with_salaries.xlsx"
+        - "D:\\Finance\\Forecasts\\2025_projections_confidential.xlsx"
+        - "D:\\Legal\\Contracts\\client_master_agreement_ACME.pdf"
+
+  phase_2:
+    name: "Collection: Archive Files with 7-Zip"
+    technique: T1560.001
+    count: 2
+    log_factory: sysmon.process_create
+    spread_seconds: 20
+    delay_after_prev: [10, 30]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "7z.exe a -p s3cr3t C:\\Users\\kate.morrison\\AppData\\Local\\Temp\\archive.zip D:\\Finance\\Q4_Reports\\*"
+        - "7z.exe a C:\\Users\\kate.morrison\\Desktop\\data.7z D:\\Finance\\* D:\\HR\\* -r"
+
+  phase_3:
+    name: "Exfiltration: HTTP POST to Personal Cloud Storage"
+    technique: T1567.002
+    count: 6
+    log_factory: proxy.http_request
+    spread_seconds: 180
+    delay_after_prev: [15, 45]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+      method: POST
+      user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"

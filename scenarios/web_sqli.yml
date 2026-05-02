@@ -1,0 +1,86 @@
+meta:
+  name: "Web Attack: SQLi to Data Exfiltration"
+  difficulty: medium
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1595.002
+      name: "Active Scanning: Vulnerability Scanning"
+    - id: T1190
+      name: "Exploit Public-Facing Application"
+    - id: T1078
+      name: "Valid Accounts (harvested via SQLi)"
+    - id: T1005
+      name: "Data from Local System"
+    - id: T1048.003
+      name: "Exfiltration Over Unencrypted Non-C2 Protocol"
+  hint: "Burst of 404/500 responses from single IP with SQLi signatures in URLs"
+  alert:
+    rule_id: WEB_ATTACK_DETECTED
+    severity: HIGH
+    summary: "SQL injection pattern detected in HTTP requests to {inject_malicious_host} from {attacker_ip}"
+    description: "WAF/proxy rule fired on UNION SELECT and OR 1=1 signatures. Multiple 500-status responses suggest successful exploitation attempts. Check for subsequent authenticated sessions from the same source."
+
+world_overrides:
+  attacker_ip: "185.220.101.55"
+  inject_malicious_host: "SRV02"
+  inject_malicious_user: "db_admin"
+
+phases:
+  phase_1:
+    name: "Reconnaissance: Web Vulnerability Scan"
+    technique: T1595.002
+    count: 20
+    log_factory: proxy.web_scan
+    spread_seconds: 120
+    delay_after_prev: [2, 10]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://{inject_malicious_host}"
+
+  phase_2:
+    name: "Initial Access: SQL Injection"
+    technique: T1190
+    count: 12
+    log_factory: proxy.web_attack
+    spread_seconds: 90
+    delay_after_prev: [10, 30]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://{inject_malicious_host}/app"
+
+  phase_3:
+    name: "Credential Access: Account Login from DB"
+    technique: T1078
+    count: 1
+    log_factory: successful_logon
+    spread_seconds: 5
+    delay_after_prev: [5, 20]
+    params:
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+
+  phase_4:
+    name: "Collection: Database Dump"
+    technique: T1005
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 30
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      command_line: "mysqldump -u root -p customers > C:\\Temp\\dump.sql"
+
+  phase_5:
+    name: "Exfiltration: HTTP Large Upload"
+    technique: T1048.003
+    count: 4
+    log_factory: proxy.http_request
+    spread_seconds: 120
+    delay_after_prev: [15, 45]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://185.220.101.55/upload"
+      method: POST
+      user_agent: "python-requests/2.31.0"

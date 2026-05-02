@@ -1,0 +1,61 @@
+meta:
+  name: "Kerberoasting + Credential Hash Dump"
+  difficulty: hard
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1558.003
+      name: "Steal or Forge Kerberos Tickets: Kerberoasting"
+    - id: T1049
+      name: "System Network Connections Discovery"
+  hint: "Rubeus or setspn requesting TGS tickets for multiple service accounts in rapid succession is the hallmark of Kerberoasting. Look for RC4-encrypted (etype 23) Kerberos tickets followed by a file write of hashes.txt — attackers export the hashes offline for cracking. Legitimate users request one or two TGS tickets at logon, not 20+ in 30 seconds."
+  alert:
+    rule_id: CRED_ACCESS_ANOMALY
+    severity: HIGH
+    summary: "Unusual Kerberos TGS request burst from {inject_malicious_host} by {inject_malicious_user} — possible Kerberoasting"
+    description: "Correlation rule fired: multiple TGS requests using RC4 encryption from a single workstation within a 60-second window. Pattern is consistent with automated Kerberoasting tooling. Review process activity and any resulting file writes on the source host."
+
+world_overrides:
+  attacker_ip: "203.0.113.77"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "john.doe"
+
+phases:
+  phase_1:
+    name: "Credential Access: Kerberoasting via Rubeus/setspn"
+    technique: T1558.003
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 30
+    delay_after_prev: [2, 8]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "Rubeus.exe kerberoast /outfile:C:\\Temp\\hashes.txt /format:hashcat"
+        - "setspn.exe -T corp.local -Q */* > C:\\Temp\\spns.txt"
+        - "Rubeus.exe kerberoast /spn:MSSQLSvc/SRV02.corp.local:1433 /rc4opsec /nowrap"
+
+  phase_2:
+    name: "Discovery: Network Connection Enumeration to DC"
+    technique: T1049
+    count: 5
+    log_factory: sysmon.network_connect
+    spread_seconds: 45
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+
+  phase_3:
+    name: "Collection: Write Kerberos Hash File"
+    technique: T1558.003
+    count: 1
+    log_factory: sysmon.file_create
+    spread_seconds: 5
+    delay_after_prev: [2, 8]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "C:\\Temp\\hashes.txt"

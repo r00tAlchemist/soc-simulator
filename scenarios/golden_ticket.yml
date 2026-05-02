@@ -1,0 +1,76 @@
+meta:
+  name: "Golden Ticket Attack via Mimikatz"
+  difficulty: hard
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1558.001
+      name: "Steal or Forge Kerberos Tickets: Golden Ticket"
+    - id: T1078
+      name: "Valid Accounts"
+    - id: T1070.001
+      name: "Indicator Removal: Clear Windows Event Logs"
+  hint: "A Golden Ticket is a forged Kerberos TGT signed with the krbtgt account's NTLM hash, granting unlimited access to any Kerberos service. Indicators include: mimikatz kerberos::golden in process history, followed by type 3 logons from the same host to many different servers within minutes (normal users don't authenticate to 4+ hosts in quick succession), and then log clearing to hide the trail. The krbtgt-forged username or abnormal PAC data in Kerberos tickets are definitive but require DC-level logging."
+  alert:
+    rule_id: CRED_ACCESS_ANOMALY
+    severity: CRITICAL
+    summary: "Possible Golden Ticket: forged Kerberos TGT used for access to {inject_malicious_host} from non-DC host, followed by log clearing"
+    description: "Critical rule fired: mimikatz kerberos::golden command observed, followed by the same account authenticating via Kerberos type 3 to multiple servers in rapid succession from a single non-privileged host. Windows event logs subsequently cleared on the source. This is consistent with a Golden Ticket attack. Treat as full domain compromise."
+
+world_overrides:
+  attacker_ip: "10.0.99.10"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "krbtgt-forged"
+
+phases:
+  phase_1:
+    name: "Credential Access: Forge Golden Ticket via Mimikatz"
+    technique: T1558.001
+    count: 1
+    log_factory: sysmon.process_create
+    spread_seconds: 5
+    delay_after_prev: [2, 8]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "mimikatz.exe \"kerberos::golden /user:Administrator /domain:corp.local /sid:S-1-5-21-3623811015-3361044348-30300820 /krbtgt:a9d4ff68bdcf8afe3e8a563b18b6b9b4 /id:500\" exit"
+        - "mimikatz.exe \"kerberos::golden /user:svc_deploy /domain:corp.local /sid:S-1-5-21-3623811015-3361044348-30300820 /krbtgt:a9d4ff68bdcf8afe3e8a563b18b6b9b4 /ptt\" exit"
+
+  phase_2:
+    name: "Lateral Movement: Kerberos Logons to Multiple Servers"
+    technique: T1078
+    count: 4
+    log_factory: successful_logon
+    spread_seconds: 60
+    delay_after_prev: [5, 20]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_3:
+    name: "Discovery: Recon on Domain Controller"
+    technique: T1078
+    count: 2
+    log_factory: sysmon.process_create
+    spread_seconds: 30
+    delay_after_prev: [10, 30]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "net group \"Domain Admins\" /domain"
+        - "dsquery.exe * -filter \"(objectClass=user)\" -attr cn sAMAccountName pwdLastSet -limit 500"
+
+  phase_4:
+    name: "Defense Evasion: Clear Windows Event Logs"
+    technique: T1070.001
+    count: 1
+    log_factory: log_cleared
+    spread_seconds: 5
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"

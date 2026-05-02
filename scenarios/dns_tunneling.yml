@@ -1,0 +1,51 @@
+meta:
+  name: "DNS C2 Tunneling via High-Entropy Subdomains"
+  difficulty: hard
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1071.004
+      name: "Application Layer Protocol: DNS"
+    - id: T1048.003
+      name: "Exfiltration Over Unencrypted Non-C2 Protocol"
+  hint: "DNS tunneling encodes data in subdomain labels to bypass firewall restrictions — only DNS (port 53) is needed. The indicators are: extremely high-entropy subdomain strings (Base64 or hex-encoded data), all queries pointing to the same authoritative domain (the attacker controls the TLD), high query volume from a single host, and DNS queries to external resolvers rather than the internal DC. Legitimate DNS has low-entropy, readable subdomain names like 'mail.corp.com' or 'cdn.microsoft.com'. Entropy > 3.5 bits/char is a strong signal."
+  alert:
+    rule_id: DNS_ANOMALY
+    severity: MEDIUM
+    summary: "High-entropy DNS subdomain queries from {inject_malicious_host} by {inject_malicious_user} — possible DNS tunneling"
+    description: "DNS anomaly rule fired: 20+ queries to high-entropy subdomains under a single parent domain from one host within 10 minutes. Subdomain labels contain Base64-encoded or hex-encoded strings consistent with DNS tunnel data encoding. Review process making DNS calls and block the parent domain."
+
+world_overrides:
+  attacker_ip: "10.0.2.55"
+  inject_malicious_host: "WS011"
+  inject_malicious_user: "ryan.cooper"
+
+phases:
+  phase_1:
+    name: "C2/Exfil: High-Entropy DNS Queries (Tunnel)"
+    technique: T1071.004
+    count: 20
+    log_factory: sysmon.dns_query
+    spread_seconds: 300
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      query_name:
+        - "aGVsbG8gd29ybGQ=.c2.tunnel-domain.net"
+        - "dXNlcm5hbWU9YWRtaW4mcGFzc3dvcmQ=.c2.tunnel-domain.net"
+        - "Y21kLmV4ZSAvYyB3aG9hbWkgL2FsbA==.exfil.tunnel-domain.net"
+        - "bHNhc3MuZHVtcA==.data.tunnel-domain.net"
+        - "cG93ZXJzaGVsbCAtZW5j.c2.tunnel-domain.net"
+
+  phase_2:
+    name: "C2: Direct DNS Connections to External Resolver"
+    technique: T1048.003
+    count: 3
+    log_factory: sysmon.network_connect
+    spread_seconds: 60
+    delay_after_prev: [10, 30]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"

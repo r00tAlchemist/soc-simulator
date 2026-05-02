@@ -1,0 +1,33 @@
+# Generated session output
+sessions/*.json
+*.csv
+*.ndjson
+
+# Keep the sessions directory itself
+!sessions/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

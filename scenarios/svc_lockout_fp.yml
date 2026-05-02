@@ -1,0 +1,29 @@
+meta:
+  name: "FP — Service Account Password Expired"
+  difficulty: medium
+  answer: FP
+  mitre_techniques: []
+  hint: "Source IP is internal (10.x.x.x), not external. Same service account failing on every host — classic expired password, not spraying."
+  alert:
+    rule_id: AUTH_BRUTE_FORCE
+    severity: HIGH
+    summary: "22 failed logon attempts from {attacker_ip} within 5 minutes — possible password spraying"
+    description: "Threshold rule fired: >15 EID 4625 from a single source IP within 300 seconds. Source does not match known threat intel. Investigate source host and account targeted."
+
+world_overrides:
+  attacker_ip: "10.0.1.25"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "svc_backup"
+
+phases:
+  phase_1:
+    name: "Auth Failures — Expired Password (svc_backup)"
+    technique: ""
+    count: 22
+    log_factory: failed_logon
+    spread_seconds: 280
+    delay_after_prev: [0, 5]
+    params:
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      dest_host: "{inject_malicious_host}"

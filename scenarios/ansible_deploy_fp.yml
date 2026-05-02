@@ -1,0 +1,46 @@
+meta:
+  name: "FP — Ansible Playbook Deployment Across Hosts"
+  difficulty: medium
+  answer: FP
+  mitre_techniques: []
+  hint: "The source IP (10.0.1.100) is the registered Ansible management server — verify in the asset inventory. All type 3 network logons use the svc_deploy service account, which is expected for agentless SSH/WinRM management. The python3 and ansible-playbook processes are signed and launched from the management server's known install path. Timing matches the Tuesday 02:00 maintenance window in the change management calendar. Lateral movement attacks typically use compromised user accounts from workstations, not dedicated management servers with service accounts."
+  alert:
+    rule_id: LATERAL_MOVEMENT
+    severity: HIGH
+    summary: "Rapid type 3 logons from {attacker_ip} to multiple hosts using {inject_malicious_user} — possible lateral movement"
+    description: "Correlation rule fired: single source IP produced >5 type 3 network logons across different hosts within 5 minutes using the same account. Pattern matches automated lateral movement tooling. Verify whether the source is an authorised management system and whether a deployment window is active."
+
+world_overrides:
+  attacker_ip: "10.0.1.100"
+  inject_malicious_host: "WS003"
+  inject_malicious_user: "svc_deploy"
+
+phases:
+  phase_1:
+    name: "Ansible: WinRM Logons to Target Hosts"
+    technique: ""
+    count: 8
+    log_factory: successful_logon
+    spread_seconds: 120
+    delay_after_prev: [0, 5]
+    params:
+      target_user: "{inject_malicious_user}"
+      source_ip: "{attacker_ip}"
+      dest_host: "{inject_malicious_host}"
+
+  phase_2:
+    name: "Ansible: Playbook Tasks Executing on Hosts"
+    technique: ""
+    count: 5
+    log_factory: sysmon.process_create
+    spread_seconds: 90
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "python3 /usr/lib/python3/dist-packages/ansible/modules/win_service.py"
+        - "ansible-playbook /etc/ansible/playbooks/patch_tuesday.yml --limit WS003"
+        - "python3 /usr/lib/python3/dist-packages/ansible/modules/win_copy.py"
+        - "ansible-playbook /etc/ansible/playbooks/compliance_check.yml -i inventory.ini"

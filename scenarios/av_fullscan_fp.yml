@@ -1,0 +1,43 @@
+meta:
+  name: "FP — Windows Defender Full Scan"
+  difficulty: easy
+  answer: FP
+  mitre_techniques: []
+  hint: "MsMpEng.exe is the Windows Defender service binary — it is a Microsoft-signed process under C:\\ProgramData\\Microsoft\\Windows Defender\\. MpCmdRun.exe is the Defender command-line tool used for scheduled scans. File writes to the Windows Defender quarantine directory and scan temp paths are entirely normal during a full scan. Malware disabling AV (DEFENSE_EVASION scenario) uses sc.exe or Set-MpPreference to stop these same binaries — here they are running and creating output files, which is the opposite of evasion. Check the process signer and parent process (Schedule Task Host or Services.exe)."
+  alert:
+    rule_id: SUSPICIOUS_PROCESS
+    severity: MEDIUM
+    summary: "Unusual process activity and mass file writes detected on {inject_malicious_host} by {inject_malicious_user}"
+    description: "Behavioural rule fired: multiple process creations and >10 file write events within a short window by the same account on a single host. Pattern can indicate malware staging. Verify process image paths and file write destinations before escalating."
+
+world_overrides:
+  inject_malicious_host: "WS006"
+  inject_malicious_user: "svc_scanner"
+
+phases:
+  phase_1:
+    name: "Windows Defender Full Scan — Scan Processes"
+    technique: ""
+    count: 3
+    log_factory: sysmon.process_create
+    spread_seconds: 30
+    delay_after_prev: [0, 5]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.2301.6-0\\MsMpEng.exe"
+        - "C:\\Program Files\\Windows Defender\\MpCmdRun.exe -Scan -ScanType 2"
+        - "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.2301.6-0\\MpCmdRun.exe -SignatureUpdate"
+
+  phase_2:
+    name: "Windows Defender Full Scan — Quarantine and Temp File Writes"
+    technique: ""
+    count: 10
+    log_factory: sysmon.file_create
+    spread_seconds: 600
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "C:\\ProgramData\\Microsoft\\Windows Defender\\Quarantine\\Entries\\scan_temp.tmp"

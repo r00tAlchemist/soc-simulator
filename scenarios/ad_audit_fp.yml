@@ -1,0 +1,47 @@
+meta:
+  name: "FP — Authorized IT Admin AD Audit"
+  difficulty: medium
+  answer: FP
+  mitre_techniques: []
+  hint: "Get-ADUser and Get-ADGroupMember are read-only PowerShell cmdlets that enumerate AD objects — they do not dump credentials or modify the directory. The source (10.0.1.15) is in the IT admin subnet (10.0.1.x), which is trusted for AD administration. The output files are CSV audit reports, not credential files (no .dmp, no NTDS.dit, no SAM). Kerberoasting (the corresponding INCIDENT scenario) writes hash files and uses Rubeus or setspn with RC4 TGS requests — none of those indicators are present here. Verify the change ticket for the quarterly AD access review."
+  alert:
+    rule_id: CRED_ACCESS_ANOMALY
+    severity: MEDIUM
+    summary: "Elevated AD enumeration activity on {inject_malicious_host} from {attacker_ip} by {inject_malicious_user}"
+    description: "Correlation rule fired: multiple AD enumeration commands (Get-ADUser, Get-ADGroupMember) executed in sequence from a single host targeting the domain controller. While these cmdlets are read-only, large-scale enumeration can precede credential attacks. Verify source host authorisation and whether output files contain sensitive data."
+
+world_overrides:
+  attacker_ip: "10.0.1.15"
+  inject_malicious_host: "DC01"
+  inject_malicious_user: "it.admin"
+
+phases:
+  phase_1:
+    name: "IT Admin: AD Read-Only Enumeration"
+    technique: ""
+    count: 5
+    log_factory: sysmon.process_create
+    spread_seconds: 120
+    delay_after_prev: [5, 20]
+    params:
+      dest_host: "{inject_malicious_host}"
+      source_ip: "{attacker_ip}"
+      target_user: "{inject_malicious_user}"
+      command_line:
+        - "powershell.exe -c \"Get-ADUser -Filter * -Properties * | Export-Csv C:\\Audit\\users.csv -NoTypeInformation\""
+        - "powershell.exe -c \"Get-ADGroupMember -Identity 'Domain Admins' -Recursive | Select Name,SamAccountName | Export-Csv C:\\Audit\\da_members.csv\""
+        - "powershell.exe -c \"Get-ADComputer -Filter * -Properties LastLogonDate,OperatingSystem | Export-Csv C:\\Audit\\computers.csv\""
+        - "powershell.exe -c \"Get-ADUser -Filter {{PasswordNeverExpires -eq $true}} | Export-Csv C:\\Audit\\pwd_noexpire.csv\""
+        - "powershell.exe -c \"Search-ADAccount -PasswordNeverExpires | Export-Csv C:\\Audit\\stale_accounts.csv\""
+
+  phase_2:
+    name: "IT Admin: Audit Report CSV Output"
+    technique: ""
+    count: 2
+    log_factory: sysmon.file_create
+    spread_seconds: 30
+    delay_after_prev: [5, 15]
+    params:
+      dest_host: "{inject_malicious_host}"
+      target_user: "{inject_malicious_user}"
+      target_filename: "C:\\Audit\\users.csv"
