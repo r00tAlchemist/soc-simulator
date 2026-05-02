@@ -129,39 +129,6 @@ Log file: session.html  (1036 events total)
 
 ---
 
-## Project Structure
-
-```
-soc-simulator/
-├── main.py              # Entry point: CLI, orchestration, alert display
-├── requirements.txt
-├── LICENSE
-│
-├── scenarios/           # 28 YAML attack/FP scenario definitions
-│   ├── apt29_brute_to_c2.yml
-│   ├── ransomware.yml
-│   ├── helpdesk_rdp_fp.yml
-│   └── ...
-│
-├── sessions/            # Saved session results (JSON, gitignored)
-│
-└── src/                 # Core logic
-    ├── models.py            # Dataclasses: LogEntry, WorldState, Scenario, etc.
-    ├── world.py             # Virtual corporate environment builder (Faker)
-    ├── generator.py         # Normal background log generation (~1000 events)
-    ├── player.py            # Attack phase injection engine
-    ├── session_builder.py   # Merges normal + attack logs, randomises timing
-    ├── scenario_loader.py   # YAML scenario parser
-    ├── exporter.py          # CSV / NDJSON / terminal output
-    ├── scorer.py            # Verdict scoring + debrief printer
-    └── log_factories/
-        ├── windows_security.py  # EID 4624/4625/4634/4688/4698/4732/1102
-        ├── sysmon.py            # EID 1/3/11/22 (process/network/file/dns)
-        └── proxy.py             # HTTP requests, DNS lookups, web attacks, scans
-```
-
----
-
 ## Adding Custom Scenarios
 
 Create a YAML file in `scenarios/`:
